@@ -1,11 +1,13 @@
-use failure::{Error, ResultExt};
-use fs_extra::dir::{move_dir, CopyOptions};
-use regex::Regex;
 use std::fs::{create_dir_all, rename, File};
 use std::{
     io::Read,
     path::{Path, PathBuf},
 };
+use log::{debug, info};
+use failure::{Error, ResultExt};
+use fs_extra::dir::{move_dir, CopyOptions};
+use regex::Regex;
+use walkdir::WalkDir;
 
 pub enum ModuleType {
     File,
@@ -37,6 +39,7 @@ impl ModuleManager {
     /// Path can be a file or a directory.
     /// If path is a directory, it will search for __init__.py file.
     /// If path is a file, it will search for a file with the same name but with .py extension.
+    /// TODO: What happen if create a module on existing module?
     pub fn new(module: &str, module_type: ModuleType) -> Result<Self, Error> {
         let mut path = String::new();
 
@@ -52,7 +55,7 @@ impl ModuleManager {
             path.push_str(".py");
         }
 
-        let mut module_manager = Self {
+        let module_manager = Self {
             path: PathBuf::from(path),
             module: module.to_owned(),
             classes: Vec::new(),
@@ -64,7 +67,59 @@ impl ModuleManager {
         Ok(module_manager)
     }
 
+    fn travel_root() -> Result<impl Iterator<Item = PathBuf>, Error> {
+        let path = std::env::current_dir()?;
+
+        let iter = WalkDir::new(path)
+            .follow_links(true)
+            .into_iter()
+            .filter(|e| {
+                let e = e.as_ref().unwrap();
+                e.file_type().is_file() && match e.path().extension() {
+                    Some(extension) => { extension == "py"},
+                    None => { false },
+                }
+            })
+            .map(|e| e.unwrap().into_path());
+
+        Ok(iter)
+    }
+
+    fn replace_in_root(old: &str, new: &str) -> Result<(), Error> {
+        let files_iter = Self::travel_root()
+            .with_context(|e| format!("Could not travel root directory: {}", e))?;
+
+        for file in files_iter {
+            debug!("Replacing in {}", file.display());
+            let contents = Self::read_file(&file)
+                .with_context(|e| format!("Could not read file {}: {}", file.display(), e))?;
+
+            let pattern = format!(r"(?m)(\s+|=|:|\(|\[|\{{)({})(\s+|\.)", old.replace(".", r"\."));
+
+            let new_contents = Regex::new(&pattern)
+                .with_context(|e| format!("Could not create regex {}: {}", pattern, e))?
+                .replace_all(&contents, |caps: &regex::Captures| {
+                    let mut replacement = String::new();
+                    replacement.push_str(&caps[1]);
+                    replacement.push_str(&new);
+                    replacement.push_str(&caps[3]);
+                    replacement
+                })
+                .to_string();
+
+            std::fs::write(&file, new_contents)
+                .with_context(|e| format!("Could not write to file {}: {}", file.display(), e))?;
+        }
+
+        Ok(())
+    }
+
     fn make_tree(path: &Path) -> Result<(), Error> {
+        if path.exists() {
+            info!("{} already exists", path.display());
+            return Ok(());
+        }
+
         if !path.parent().is_none() {
             create_dir_all(path.parent().unwrap()).with_context(|e| {
                 format!("Could not create directory {}: {}", path.display(), e)
@@ -136,7 +191,7 @@ impl ModuleManager {
         let mut classes = Vec::new();
         let contents = Self::read_file(&self.path)?;
 
-        let re = Regex::new(r"(?m)^class\s+(\w+)\s*:\s*$")?;
+        let re = Regex::new(r"(?m)^class\s+(\w+)\s*(\(\s*(\w|\.)+\s*\))?\s*:\s*$")?;
         for cap in re.captures_iter(&contents) {
             classes.push(cap[1].replace("class", "").trim().to_owned());
         }
@@ -147,7 +202,9 @@ impl ModuleManager {
         let mut functions = Vec::new();
         let contents = Self::read_file(&self.path)?;
 
-        let re = Regex::new(r"(?m)^def\s+(\w+)\s*\(.*\)\s*:\s*$")?;
+        let re = Regex::new(
+            r"(?m)^def\s+(\w+)\s*\((?:\s*\w+\s*:\s*(\w|\.)+\s*(?:=\s*.+)?\s*,?\s*)*\)\s*(?:->\s*(\w|\.)+\s*)?:\s*$",
+        )?;
         for cap in re.captures_iter(&contents) {
             functions.push(cap[1].replace("def", "").trim().to_owned());
         }
@@ -184,11 +241,11 @@ impl ModuleManager {
     }
 
     pub fn mv(self: &mut Self, to: &str) -> Result<(), Error> {
-        let mut new_path = Self::module_2_path(to, &self.module_type)?;
+        let new_path = Self::module_2_path(to, &self.module_type)?;
         Self::make_tree(&new_path)?;
 
         if self.module_type == ModuleType::Directory {
-            println!("Moving {} to {}", self.path.display(), new_path.display());
+            debug!("Moving {} to {}", self.path.display(), new_path.display());
 
             move_dir(
                 &self.path.parent().unwrap(),
@@ -197,12 +254,15 @@ impl ModuleManager {
             )
             .with_context(|e| format!("Could not move directory {}: {}", self.path.display(), e))?;
         } else {
-            println!("Renaming {} to {}", self.path.display(), new_path.display());
+            debug!("Renaming {} to {}", self.path.display(), new_path.display());
 
             rename(&self.path, &new_path).with_context(|e| {
                 format!("Could not rename file {}: {}", self.path.display(), e)
             })?;
         }
+
+        Self::replace_in_root(&self.module, to)
+            .with_context(|e| format!("Could not replace in root directory: {}", e))?;
 
         self.path = new_path;
         self.module = to.to_owned();
@@ -213,13 +273,15 @@ impl ModuleManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs::remove_file;
+
+    use super::*;
+
     #[test]
     fn test_create() {
-        let module_manager = ModuleManager::new("tests.test_module", ModuleType::File).unwrap();
-        assert_eq!(module_manager.module, "tests.test_module");
-        assert_eq!(module_manager.path, PathBuf::from("tests/test_module.py"));
+        let module_manager = ModuleManager::new("tests.test_create", ModuleType::File).unwrap();
+        assert_eq!(module_manager.module, "tests.test_create");
+        assert_eq!(module_manager.path, PathBuf::from("tests/test_create.py"));
 
         let module_manager = ModuleManager::new("tests", ModuleType::Directory).unwrap();
         assert_eq!(module_manager.module, "tests");
@@ -230,7 +292,7 @@ mod tests {
     fn test_find_classes() {
         let module_manager = ModuleManager::new("tests.test_module", ModuleType::File).unwrap();
         let classes = module_manager.find_classes().unwrap();
-        assert_eq!(classes, vec!["TestClass"]);
+        assert_eq!(classes, vec!["TestClass", "TestClass2"]);
     }
 
     #[test]
@@ -249,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_make_tree() {
-        let path = PathBuf::from("tests/test_module.py");
+        let path = PathBuf::from("tests/test_make_tree.py");
         ModuleManager::make_tree(&path).unwrap();
         assert!(path.exists());
     }
@@ -283,9 +345,15 @@ mod tests {
         assert_eq!(module_manager.module, "tests.test_mv2");
         assert_eq!(module_manager.path, PathBuf::from("tests/test_mv2.py"));
 
+        let check_content = ModuleManager::read_file(Path::new("tests/test_check_mv.py")).expect("Could not read file");
+        assert_eq!(check_content, "from tests.test_mv2 import *\nimport tests.test_mv2.abc as abc\ntest_var:tests.test_mv2.abc.ABC = tests.test_mv2.abc.ABC()");
+
         module_manager.mv("tests.test_mv").unwrap();
         assert_eq!(module_manager.module, "tests.test_mv");
         assert_eq!(module_manager.path, PathBuf::from("tests/test_mv.py"));
+
+        let check_content = ModuleManager::read_file(Path::new("tests/test_check_mv.py")).expect("Could not read file");
+        assert_eq!(check_content, "from tests.test_mv import *\nimport tests.test_mv.abc as abc\ntest_var:tests.test_mv.abc.ABC = tests.test_mv.abc.ABC()");
 
         let mut module_manager =
             ModuleManager::new("tests.test_mv", ModuleType::Directory).unwrap();
@@ -296,12 +364,18 @@ mod tests {
             PathBuf::from("tests/test_mv2/__init__.py")
         );
 
+        let check_content = ModuleManager::read_file(Path::new("tests/test_check_mv.py")).expect("Could not read file");
+        assert_eq!(check_content, "from tests.test_mv2 import *\nimport tests.test_mv2.abc as abc\ntest_var:tests.test_mv2.abc.ABC = tests.test_mv2.abc.ABC()");
+
         module_manager.mv("tests.test_mv").unwrap();
         assert_eq!(module_manager.module, "tests.test_mv");
         assert_eq!(
             module_manager.path,
             PathBuf::from("tests/test_mv/__init__.py")
         );
+
+        let check_content = ModuleManager::read_file(Path::new("tests/test_check_mv.py")).expect("Could not read file");
+        assert_eq!(check_content, "from tests.test_mv import *\nimport tests.test_mv.abc as abc\ntest_var:tests.test_mv.abc.ABC = tests.test_mv.abc.ABC()");
     }
 
     #[test]
