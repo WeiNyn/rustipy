@@ -1,5 +1,5 @@
-use structopt::StructOpt;
 use failure::ResultExt;
+use structopt::StructOpt;
 
 use crate::module_manager::{ModuleManager, ModuleType};
 

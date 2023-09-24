@@ -1,11 +1,12 @@
 use exitfailure::ExitFailure;
 use structopt::StructOpt;
 
-mod module_manager;
 mod command_options;
+mod module_manager;
+mod parse_ast;
+mod python_def;
 
-use crate::command_options::{Options, SubCommand, add, mv};
-
+use crate::command_options::{add, mv, Options, SubCommand};
 
 fn main() -> Result<(), ExitFailure> {
     let options = Options::from_args();

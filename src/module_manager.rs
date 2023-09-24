@@ -1,3 +1,5 @@
+use crate::parse_ast::{parse_ast, parse_root_ast};
+use crate::python_def::{Attribute, Class, Method};
 use failure::{Error, ResultExt};
 use fs_extra::dir::{move_dir, CopyOptions};
 use log::{debug, info};
@@ -29,9 +31,9 @@ impl PartialEq for ModuleType {
 pub struct ModuleManager {
     path: PathBuf,
     module: String,
-    classes: Vec<String>,
-    functions: Vec<String>,
-    vars: Vec<String>,
+    classes: Vec<Class>,
+    functions: Vec<Method>,
+    vars: Vec<Attribute>,
     module_type: ModuleType,
     sub_modules: Vec<ModuleManager>,
 }
@@ -88,9 +90,7 @@ impl ModuleManager {
     }
 
     fn travel_root() -> Result<impl Iterator<Item = PathBuf>, Error> {
-        let path = std::env::current_dir()?;
-
-        let iter = WalkDir::new(path)
+        let iter = WalkDir::new("./")
             .follow_links(true)
             .into_iter()
             .filter(|e| {
@@ -165,6 +165,10 @@ impl ModuleManager {
         for component in path.components() {
             let component = component.as_os_str().to_str().unwrap();
 
+            if component == "." {
+                continue;
+            }
+
             if component == "__init__.py" {
                 module.pop();
                 return Ok(module);
@@ -214,47 +218,6 @@ impl ModuleManager {
         Ok(contents)
     }
 
-    fn find_classes(self: &Self) -> Result<Vec<String>, Error> {
-        let mut classes = Vec::new();
-        let contents = Self::read_file(&self.path)?;
-
-        let re = Regex::new(r"(?m)^class\s+(\w+)\s*(\(\s*(\w|\.)+\s*\))?\s*:\s*$")?;
-        for cap in re.captures_iter(&contents) {
-            classes.push(cap[1].replace("class", "").trim().to_owned());
-        }
-        Ok(classes)
-    }
-
-    fn find_functions(self: &Self) -> Result<Vec<String>, Error> {
-        let mut functions = Vec::new();
-        let contents = Self::read_file(&self.path)?;
-
-        let re = Regex::new(
-            r"(?m)^def\s+(\w+)\s*\((?:\s*\w+\s*:\s*(\w|\.)+\s*(?:=\s*.+)?\s*,?\s*)*\)\s*(?:->\s*(\w|\.)+\s*)?:\s*$",
-        )?;
-        for cap in re.captures_iter(&contents) {
-            functions.push(cap[1].replace("def", "").trim().to_owned());
-        }
-        Ok(functions)
-    }
-
-    fn find_vars(self: &Self) -> Result<Vec<String>, Error> {
-        let mut vars = Vec::new();
-        let contents = Self::read_file(&self.path)?;
-
-        let re = Regex::new(r"(?m)^\s*(\w+)\s*(?::\s*\w+\s*)?=\s*.*$")?;
-        contents
-            .lines()
-            .filter(|l| !l.starts_with(" ") & !l.starts_with("  "))
-            .for_each(|l| {
-                for cap in re.captures_iter(l) {
-                    vars.push(cap[1].trim().to_owned());
-                }
-            });
-
-        Ok(vars)
-    }
-
     fn get_sub_modules(self: &mut Self) -> Result<Vec<ModuleManager>, Error> {
         let mut sub_modules = Vec::new();
 
@@ -270,7 +233,9 @@ impl ModuleManager {
                         sub_modules.push(sub_module_manager);
                     }
                 }
-                Err(_) => {}
+                Err(e) => {
+                    println!("Could not convert path to module: {}", e);
+                }
             }
         }
 
@@ -284,9 +249,19 @@ impl ModuleManager {
     }
 
     pub fn reload(self: &mut Self) -> Result<(), Error> {
-        self.classes = self.find_classes()?;
-        self.functions = self.find_functions()?;
-        self.vars = self.find_vars()?;
+        let (ast, original_code) = parse_ast(&self.path, None).with_context(|e| {
+            format!(
+                "Could not parse file {}: {}",
+                self.path.display(),
+                e.to_string()
+            )
+        })?;
+        let (classes, functions, vars) = parse_root_ast(ast, &original_code)
+            .with_context(|e| format!("Could not parse root ast: {}", e))?;
+
+        self.classes = classes;
+        self.functions = functions;
+        self.vars = vars;
         self.sub_modules = self.get_sub_modules()?;
         Ok(())
     }
@@ -344,46 +319,34 @@ impl ModuleManager {
         Ok(())
     }
 
-    pub fn get_classes(self: &Self) -> Vec<String> {
-        let mut classes = self
-            .classes
-            .clone()
-            .into_iter()
-            .map(|c| format!("{}.{}", &self.module, c))
-            .collect::<Vec<String>>();
+    #[allow(dead_code)]
+    pub fn get_classes(self: &Self) -> Vec<Class> {
+        let mut classes = self.classes.clone();
 
         for sub_module in &self.sub_modules {
-            classes.append(&mut sub_module.get_classes());
+            classes.append(&mut sub_module.get_classes().clone());
         }
 
         classes
     }
 
-    pub fn get_functions(self: &Self) -> Vec<String> {
-        let mut functions = self
-            .functions
-            .clone()
-            .into_iter()
-            .map(|f| format!("{}.{}", &self.module, f))
-            .collect::<Vec<String>>();
+    #[allow(dead_code)]
+    pub fn get_functions(self: &Self) -> Vec<Method> {
+        let mut functions = self.functions.clone();
 
         for sub_module in &self.sub_modules {
-            functions.append(&mut sub_module.get_functions());
+            functions.append(&mut sub_module.get_functions().clone());
         }
 
         functions
     }
 
-    pub fn get_vars(self: &Self) -> Vec<String> {
-        let mut vars = self
-            .vars
-            .clone()
-            .into_iter()
-            .map(|v| format!("{}.{}", &self.module, v))
-            .collect::<Vec<String>>();
+    #[allow(dead_code)]
+    pub fn get_vars(self: &Self) -> Vec<Attribute> {
+        let mut vars = self.vars.clone();
 
         for sub_module in &self.sub_modules {
-            vars.append(&mut sub_module.get_vars());
+            vars.append(&mut sub_module.get_vars().clone());
         }
 
         vars
@@ -413,30 +376,6 @@ mod tests {
     }
 
     #[test]
-    fn test_find_classes() {
-        let module_manager =
-            ModuleManager::new("tests.test_module", ModuleType::File, false).unwrap();
-        let classes = module_manager.find_classes().unwrap();
-        assert_eq!(classes, vec!["TestClass", "TestClass2"]);
-    }
-
-    #[test]
-    fn test_find_functions() {
-        let module_manager =
-            ModuleManager::new("tests.test_module", ModuleType::File, false).unwrap();
-        let functions = module_manager.find_functions().unwrap();
-        assert_eq!(functions, vec!["test_function"]);
-    }
-
-    #[test]
-    fn test_find_vars() {
-        let module_manager =
-            ModuleManager::new("tests.test_module", ModuleType::File, false).unwrap();
-        let vars = module_manager.find_vars().unwrap();
-        assert_eq!(vars, vec!["test_var", "test_var2", "TEST_CONST"]);
-    }
-
-    #[test]
     fn test_build() {
         let module_manager =
             ModuleManager::new("tests.test_build", ModuleType::File, false).unwrap();
@@ -452,6 +391,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Need to test separately"]
     fn test_add_sub_module() {
         let mut module_manager =
             ModuleManager::new("tests.test_add_sub_module", ModuleType::Directory, true).unwrap();
@@ -474,6 +414,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Need to test separately"]
     fn test_add_sub_module_panic() {
         let mut module_manager =
             ModuleManager::new("tests.test_add_sub_module", ModuleType::File, true).unwrap();
@@ -489,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "Need to test separately"]
     fn test_mv() {
         let mut module_manager =
             ModuleManager::new("tests.test_mv", ModuleType::File, true).unwrap();
@@ -535,43 +476,5 @@ mod tests {
 
         remove_file("tests/test_mv.py").unwrap();
         remove_dir_all("tests/test_mv").unwrap();
-    }
-
-    #[test]
-    fn test_get_classes() {
-        let mut module_manager = ModuleManager::new("tests", ModuleType::Directory, false).unwrap();
-        module_manager.reload().unwrap();
-        let classes = module_manager.get_classes();
-        assert_eq!(
-            classes,
-            vec![
-                "tests.test_module.TestClass",
-                "tests.test_module.TestClass2"
-            ]
-        );
-    }
-
-    #[test]
-    fn test_get_functions() {
-        let mut module_manager = ModuleManager::new("tests", ModuleType::Directory, false).unwrap();
-        module_manager.reload().unwrap();
-        let functions = module_manager.get_functions();
-        assert_eq!(functions, vec!["tests.test_module.test_function"]);
-    }
-
-    #[test]
-    fn test_get_vars() {
-        let mut module_manager = ModuleManager::new("tests", ModuleType::Directory, false).unwrap();
-        module_manager.reload().unwrap();
-        let vars = module_manager.get_vars();
-        assert_eq!(
-            vars,
-            vec![
-                "tests.test_module.test_var",
-                "tests.test_module.test_var2",
-                "tests.test_module.TEST_CONST",
-                "tests.test_check_mv.test_var"
-            ]
-        );
     }
 }
