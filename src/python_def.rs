@@ -82,7 +82,7 @@ impl PythonDef for Class {
 
         if self.name.contains(query) || function_defs.len() > 0 {
             if include_file_name.is_some() && include_file_name.unwrap() {
-                result.push_str(&cformat!("<red><bg:blue> [{}]</bg:blue></red>\n", self.path));
+                result.push_str(&cformat!("<yellow><bg:blue> [{}]</bg:blue></yellow>\n", self.path));
             }
             result.push_str(&class_def_str);
             result.push_str(&function_defs);
@@ -157,7 +157,13 @@ impl PythonDef for Method {
             &self
                 .arguments
                 .iter()
-                .map(|a| a.definition_code.clone())
+                .map(|a| a.definition_code
+                    .clone()
+                    .replace("self", cformat!("<red>self</red>").as_str())
+                    .replace("cls", cformat!("<red>cls</red>").as_str())
+                    .replace("...", cformat!("<red>...</red>").as_str())
+                    .replace("*", cformat!("<red>*</red>").as_str())
+                )
                 .collect::<Vec<String>>()
                 .join(", "),
         );
@@ -170,7 +176,7 @@ impl PythonDef for Method {
 
         if self.name.contains(query) {
             if include_file_name.is_some() && include_file_name.unwrap() {
-                result.push_str(&cformat!("<red><bg:blue> [{}]</bg:blue></red>\n", self.path));
+                result.push_str(&cformat!("<yellow><bg:blue> [{}]</bg:blue></yellow>\n", self.path));
             }
             result.push_str(&method_def_str);
         }
@@ -252,7 +258,7 @@ impl PythonDef for Attribute {
 
         if self.name.contains(query) {
             if include_file_name.is_some() && include_file_name.unwrap() {
-                result.push_str(&cformat!("<red><bg:blue> [{}]</bg:blue></red>\n", self.path));
+                result.push_str(&cformat!("<yellow><bg:blue> [{}]</bg:blue></yellow>\n", self.path));
             }
             result.push_str(&arg_def_str);
             result.push('\n');

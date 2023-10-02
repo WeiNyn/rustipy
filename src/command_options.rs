@@ -191,7 +191,7 @@ pub fn find(options: &FindOptions) {
             }
         }
         None => {
-            let _ = module_manager::ModuleManager::travel_root()
+            let _ = module_manager::ModuleManager::travel_root(None, Some(2))
                 .unwrap()
                 .filter(|m| {
                     if m.file_name().unwrap() == "__init__.py" {

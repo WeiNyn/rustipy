@@ -12,7 +12,7 @@ use std::{
 };
 use walkdir::WalkDir;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum ModuleType {
     File,
     Directory,
@@ -28,6 +28,7 @@ impl PartialEq for ModuleType {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct ModuleManager {
     path: PathBuf,
     module: String,
@@ -89,9 +90,22 @@ impl ModuleManager {
         Ok(module_manager)
     }
 
-    pub fn travel_root() -> Result<impl Iterator<Item = PathBuf>, Error> {
-        let iter = WalkDir::new("./")
-            .follow_links(true)
+    pub fn travel_root(
+        prefix: Option<String>,
+        max_dept: Option<usize>,
+    ) -> Result<impl Iterator<Item = PathBuf>, Error> {
+        let prefix = match prefix {
+            Some(prefix) => "./".to_owned() + &prefix,
+            None => String::from("./"),
+        };
+
+        let mut iter = WalkDir::new(prefix).follow_links(true);
+
+        if max_dept.is_some() {
+            iter = iter.max_depth(max_dept.unwrap());
+        }
+
+        let iter = iter
             .into_iter()
             .filter(|e| {
                 let e = e.as_ref().unwrap();
@@ -107,7 +121,7 @@ impl ModuleManager {
     }
 
     fn replace_in_root(old: &str, new: &str) -> Result<(), Error> {
-        let files_iter = Self::travel_root()
+        let files_iter = Self::travel_root(None, None)
             .with_context(|e| format!("Could not travel root directory: {}", e))?;
 
         for file in files_iter {
@@ -219,17 +233,32 @@ impl ModuleManager {
     }
 
     fn get_sub_modules(self: &mut Self) -> Result<Vec<ModuleManager>, Error> {
+        if self.module_type == ModuleType::File {
+            return Ok(Vec::new());
+        }
+
         let mut sub_modules = Vec::new();
 
-        let files_iter = Self::travel_root()
-            .with_context(|e| format!("Could not travel root directory: {}", e))?;
+        let files_iter = Self::travel_root(
+            Some(self.path.parent().unwrap().to_str().unwrap().to_string()),
+            Some(2),
+        )
+        .with_context(|e| format!("Could not travel root directory: {}", e))?;
 
+        let accepted_root = self.path.parent().unwrap();
         for file in files_iter {
             let module_type = if file.ends_with("__init__.py") {
                 ModuleType::Directory
             } else {
                 ModuleType::File
             };
+
+            if module_type == ModuleType::File
+                && file.strip_prefix("./").unwrap().parent().unwrap() != accepted_root
+            {
+                continue;
+            }
+
             match Self::path_2_module(file.to_str().unwrap()) {
                 Ok(module) => {
                     if module.starts_with(&self.module) && module != self.module {
@@ -272,9 +301,11 @@ impl ModuleManager {
         self.functions = functions;
         self.vars = vars;
         self.sub_modules = self.get_sub_modules()?;
+
         Ok(())
     }
 
+    /// TODO: Change this to AST operation for preventing errors
     pub fn mv(self: &mut Self, to: &str) -> Result<(), Error> {
         let new_path = Self::module_2_path(to, &self.module_type)?;
         Self::make_tree(&new_path)?;
