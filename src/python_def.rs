@@ -1,15 +1,13 @@
 pub trait PythonDef {
     fn get_type(&self) -> String;
 
-    fn get_definition_code(&self) -> String {
-        String::from("")
-    }
+    fn get_definition_code(&self) -> String;
 }
 
 #[derive(Debug, Clone)]
 pub struct Class {
-    name: String,
-    methods: Vec<Method>,
+    pub name: String,
+    pub methods: Vec<Method>,
     base_classes: Vec<String>,
     pub definition_code: String,
 }
@@ -43,9 +41,6 @@ impl PythonDef for Class {
         }
         code.push_str(":\n");
 
-        code.push('\n');
-        code.push('\n');
-
         for m in &self.methods {
             code.push_str("    ");
             code.push_str(&m.definition_code);
@@ -58,7 +53,7 @@ impl PythonDef for Class {
 
 #[derive(Debug, Clone)]
 pub struct Method {
-    name: String,
+    pub name: String,
     return_type: Option<String>,
     arguments: Vec<Attribute>,
     pub definition_code: String,
@@ -116,7 +111,7 @@ pub enum ArgType {
 
 #[derive(Debug, Clone)]
 pub struct Attribute {
-    name: String,
+    pub name: String,
     type_: Option<String>,
     default: Option<String>,
     pub definition_code: String,

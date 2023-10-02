@@ -8,7 +8,7 @@ def test_function2(a, b: str, *, d: int):
     return random.Random()
 
 
-def test_function3(*kwoargs, case_sen=False):
+def test_function3(*kwargs, case_sen=False):
     return random.Random()
 
 

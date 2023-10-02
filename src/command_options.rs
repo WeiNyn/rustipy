@@ -1,7 +1,7 @@
 use failure::ResultExt;
 use structopt::StructOpt;
 
-use crate::module_manager::{ModuleManager, ModuleType};
+use crate::module_manager::{self, ModuleManager, ModuleType};
 
 #[derive(StructOpt)]
 pub enum SubCommand {
@@ -10,6 +10,9 @@ pub enum SubCommand {
 
     #[structopt(name = "mv", about = "move a module")]
     Move(MoveOptions),
+
+    #[structopt(name = "find", about = "find a module")]
+    Find(FindOptions),
 }
 
 #[derive(StructOpt)]
@@ -36,6 +39,33 @@ pub struct MoveOptions {
     #[structopt()]
     /// The name of the module to move to
     to: String,
+}
+
+#[derive(StructOpt)]
+pub struct FindOptions {
+    #[structopt()]
+    /// The name of the module to find
+    query: String,
+
+    #[structopt()]
+    /// The name of the module to find
+    module: Option<String>,
+
+    #[structopt(short = "i", long = "is_file")]
+    /// Is the module a file?
+    is_file: bool,
+
+    #[structopt(short = "f", long = "function")]
+    /// find functions
+    function: bool,
+
+    #[structopt(short = "c", long = "class")]
+    /// find classes
+    class: bool,
+
+    #[structopt(short = "v", long = "variable")]
+    /// find variables
+    variable: bool,
 }
 
 #[derive(StructOpt)]
@@ -102,4 +132,130 @@ pub fn mv(options: &MoveOptions) {
         .mv(to)
         .with_context(|e| format!("Failed to move module {} to {}: {}", module, to, e))
         .unwrap();
+}
+
+pub fn find(options: &FindOptions) {
+    match &options.module {
+        Some(module) => {
+            let query = &options.query;
+
+            println!("Searching for {} in {}", query, module);
+
+            let module_type = if options.is_file {
+                ModuleType::File
+            } else {
+                ModuleType::Directory
+            };
+
+            let mut module_manager = ModuleManager::new(module, module_type, false)
+                .with_context(|e| {
+                    format!(
+                        "Failed to create module manager for module {}: {}",
+                        module, e
+                    )
+                })
+                .unwrap();
+
+            module_manager
+                .reload()
+                .with_context(|e| {
+                    format!(
+                        "Failed to reload module manager for module {}: {}",
+                        module, e
+                    )
+                })
+                .unwrap();
+
+            let mut result = Vec::new();
+            let is_find_all = !options.function && !options.class && !options.variable;
+
+            if options.function || is_find_all {
+                let functions = module_manager
+                    .get_functions()
+                    .into_iter()
+                    .filter(|f| f.name.contains(query))
+                    .map(|f| f.definition_code)
+                    .collect::<Vec<String>>();
+
+                result.extend(functions);
+
+                let class_functions = module_manager
+                    .get_classes()
+                    .into_iter()
+                    .filter(|c| {
+                        c.methods
+                            .clone()
+                            .into_iter()
+                            .any(|c| c.name.contains(query))
+                    })
+                    .map(|c| c.definition_code)
+                    .collect::<Vec<String>>();
+
+                result.extend(class_functions);
+            }
+
+            if options.class || is_find_all {
+                let classes = module_manager
+                    .get_classes()
+                    .into_iter()
+                    .filter(|c| c.name.contains(query))
+                    .map(|c| c.definition_code)
+                    .collect::<Vec<String>>();
+
+                result.extend(classes);
+            }
+
+            if options.variable || is_find_all {
+                let attributes = module_manager
+                    .get_vars()
+                    .into_iter()
+                    .filter(|a| a.name.contains(query))
+                    .map(|a| a.definition_code)
+                    .collect::<Vec<String>>();
+
+                result.extend(attributes);
+            }
+
+            for r in result {
+                println!("{}", r);
+            }
+        }
+        None => {
+            let _ = module_manager::ModuleManager::travel_root()
+                .unwrap()
+                .filter(|m| {
+                    if m.file_name().unwrap() == "__init__.py" {
+                        if m.iter().count() != 3 {
+                            return false;
+                        } else {
+                            return true;
+                        }
+                    } else if m.iter().count() != 2 {
+                        return false;
+                    } else {
+                        return true;
+                    }
+                })
+                .map(|m| {
+                    let is_file = m.file_name().unwrap() != "__init__.py";
+                    let module = module_manager::ModuleManager::path_2_module(
+                        &m.to_str().unwrap().to_string(),
+                    )
+                    .with_context(|e| format!("Failed to convert path to module: {}", e))
+                    .unwrap();
+
+                    let sub_options = FindOptions {
+                        query: options.query.clone(),
+                        module: Some(module),
+                        is_file: is_file,
+                        function: options.function.clone(),
+                        class: options.class.clone(),
+                        variable: options.variable.clone(),
+                    };
+
+                    find(&sub_options)
+                })
+                .collect::<Vec<_>>();
+        }
+    }
 }

@@ -89,7 +89,7 @@ impl ModuleManager {
         Ok(module_manager)
     }
 
-    fn travel_root() -> Result<impl Iterator<Item = PathBuf>, Error> {
+    pub fn travel_root() -> Result<impl Iterator<Item = PathBuf>, Error> {
         let iter = WalkDir::new("./")
             .follow_links(true)
             .into_iter()
@@ -158,7 +158,7 @@ impl ModuleManager {
         Ok(())
     }
 
-    fn path_2_module(path: &str) -> Result<String, Error> {
+    pub fn path_2_module(path: &str) -> Result<String, Error> {
         let path = PathBuf::from(path);
         let mut module = String::new();
 
@@ -189,7 +189,7 @@ impl ModuleManager {
         )));
     }
 
-    fn module_2_path(module: &str, module_type: &ModuleType) -> Result<PathBuf, Error> {
+    pub fn module_2_path(module: &str, module_type: &ModuleType) -> Result<PathBuf, Error> {
         let mut path = String::new();
 
         for component in module.split(".") {
