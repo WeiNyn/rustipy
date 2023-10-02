@@ -1,3 +1,4 @@
+use color_print::cprintln;
 use failure::ResultExt;
 use structopt::StructOpt;
 
@@ -139,7 +140,11 @@ pub fn find(options: &FindOptions) {
         Some(module) => {
             let query = &options.query;
 
-            println!("Searching for {} in {}", query, module);
+            cprintln!(
+                "󱁴 Searching for <green>{}</green> in <blue>{}</blue>",
+                query,
+                module
+            );
 
             let module_type = if options.is_file {
                 ModuleType::File
@@ -170,54 +175,19 @@ pub fn find(options: &FindOptions) {
             let is_find_all = !options.function && !options.class && !options.variable;
 
             if options.function || is_find_all {
-                let functions = module_manager
-                    .get_functions()
-                    .into_iter()
-                    .filter(|f| f.name.contains(query))
-                    .map(|f| f.definition_code)
-                    .collect::<Vec<String>>();
-
-                result.extend(functions);
-
-                let class_functions = module_manager
-                    .get_classes()
-                    .into_iter()
-                    .filter(|c| {
-                        c.methods
-                            .clone()
-                            .into_iter()
-                            .any(|c| c.name.contains(query))
-                    })
-                    .map(|c| c.definition_code)
-                    .collect::<Vec<String>>();
-
-                result.extend(class_functions);
+                result.extend(module_manager.find_functions(query))
             }
 
-            if options.class || is_find_all {
-                let classes = module_manager
-                    .get_classes()
-                    .into_iter()
-                    .filter(|c| c.name.contains(query))
-                    .map(|c| c.definition_code)
-                    .collect::<Vec<String>>();
-
-                result.extend(classes);
+            if options.class || options.function || is_find_all {
+                result.extend(module_manager.find_classes(query))
             }
 
             if options.variable || is_find_all {
-                let attributes = module_manager
-                    .get_vars()
-                    .into_iter()
-                    .filter(|a| a.name.contains(query))
-                    .map(|a| a.definition_code)
-                    .collect::<Vec<String>>();
-
-                result.extend(attributes);
+                result.extend(module_manager.find_vars(query))
             }
 
             for r in result {
-                println!("{}", r);
+                cprintln!("{}", r);
             }
         }
         None => {

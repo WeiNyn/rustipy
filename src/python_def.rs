@@ -1,11 +1,16 @@
+use color_print::cformat;
+
 pub trait PythonDef {
     fn get_type(&self) -> String;
 
     fn get_definition_code(&self) -> String;
+
+    fn find(&self, query: &str, include_file_name: Option<bool>) -> String;
 }
 
 #[derive(Debug, Clone)]
 pub struct Class {
+    pub path: String,
     pub name: String,
     pub methods: Vec<Method>,
     base_classes: Vec<String>,
@@ -13,8 +18,14 @@ pub struct Class {
 }
 
 impl Class {
-    pub fn new(name: String, methods: Vec<Method>, base_classes: Vec<String>) -> Class {
+    pub fn new(
+        path: String,
+        name: String,
+        methods: Vec<Method>,
+        base_classes: Vec<String>,
+    ) -> Class {
         let mut class = Class {
+            path: path,
             name: name,
             methods: methods,
             base_classes: base_classes,
@@ -49,10 +60,41 @@ impl PythonDef for Class {
 
         code
     }
+
+    fn find(&self, query: &str, include_file_name: Option<bool>) -> String {
+        let mut result = String::new();
+
+        let mut class_def_str = cformat!("<red>class</red> <yellow>{}</yellow>", self.name.clone());
+        if self.base_classes.len() > 0 {
+            class_def_str.push_str(&cformat!("(<blue>{}</blue>)", self.base_classes.join(", ")));
+        }
+        class_def_str.push_str(":\n");
+        class_def_str = class_def_str.replace(query, cformat!("<bg:green>{}</bg:green>", query).as_str());
+
+        let mut function_defs = String::new();
+        for m in &self.methods {
+            let function_def = m.find(query, Some(false));
+            if function_def.len() > 0 {
+                function_defs.push_str("    ");
+                function_defs.push_str(&function_def);
+            }
+        }
+
+        if self.name.contains(query) || function_defs.len() > 0 {
+            if include_file_name.is_some() && include_file_name.unwrap() {
+                result.push_str(&cformat!("<red><bg:blue> [{}]</bg:blue></red>\n", self.path));
+            }
+            result.push_str(&class_def_str);
+            result.push_str(&function_defs);
+        }
+
+        result
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Method {
+    pub path: String,
     pub name: String,
     return_type: Option<String>,
     arguments: Vec<Attribute>,
@@ -60,8 +102,14 @@ pub struct Method {
 }
 
 impl Method {
-    pub fn new(name: String, return_type: Option<String>, arguments: Vec<Attribute>) -> Method {
+    pub fn new(
+        path: String,
+        name: String,
+        return_type: Option<String>,
+        arguments: Vec<Attribute>,
+    ) -> Method {
         let mut method = Method {
+            path: path,
             name: name,
             return_type: return_type,
             arguments: arguments,
@@ -98,6 +146,37 @@ impl PythonDef for Method {
         code.push_str(":\n");
         code
     }
+
+    fn find(&self, query: &str, include_file_name: Option<bool>) -> String {
+        let mut result = String::new();
+
+        let mut method_def_str =
+            cformat!("<red>def</red> <magenta>{}</magenta>", self.name.clone());
+        method_def_str.push_str("(");
+        method_def_str.push_str(
+            &self
+                .arguments
+                .iter()
+                .map(|a| a.definition_code.clone())
+                .collect::<Vec<String>>()
+                .join(", "),
+        );
+        method_def_str.push_str(")");
+        if self.return_type.is_some() {
+            method_def_str.push_str(&format!(" -> {}", self.return_type.clone().unwrap()));
+        }
+        method_def_str.push_str(":\n");
+        method_def_str = method_def_str.replace(query, cformat!("<bg:green>{}</bg:green>", query).as_str());
+
+        if self.name.contains(query) {
+            if include_file_name.is_some() && include_file_name.unwrap() {
+                result.push_str(&cformat!("<red><bg:blue> [{}]</bg:blue></red>\n", self.path));
+            }
+            result.push_str(&method_def_str);
+        }
+
+        result
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -111,6 +190,7 @@ pub enum ArgType {
 
 #[derive(Debug, Clone)]
 pub struct Attribute {
+    pub path: String,
     pub name: String,
     type_: Option<String>,
     default: Option<String>,
@@ -120,12 +200,14 @@ pub struct Attribute {
 
 impl Attribute {
     pub fn new(
+        path: String,
         name: String,
         type_: Option<String>,
         default: Option<String>,
         arg_type: ArgType,
     ) -> Attribute {
         let mut attribute = Attribute {
+            path: path,
             name: name,
             type_: type_,
             default: default,
@@ -160,5 +242,22 @@ impl PythonDef for Attribute {
                 code
             }
         }
+    }
+
+    fn find(&self, query: &str, include_file_name: Option<bool>) -> String {
+        let mut result = String::new();
+
+        let mut arg_def_str = self.definition_code.clone();
+        arg_def_str = arg_def_str.replace(query, cformat!("<bg:green>{}</bg:green>", query).as_str());
+
+        if self.name.contains(query) {
+            if include_file_name.is_some() && include_file_name.unwrap() {
+                result.push_str(&cformat!("<red><bg:blue> [{}]</bg:blue></red>\n", self.path));
+            }
+            result.push_str(&arg_def_str);
+            result.push('\n');
+        }
+
+        result
     }
 }

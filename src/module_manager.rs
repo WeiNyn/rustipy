@@ -1,5 +1,5 @@
 use crate::parse_ast::{parse_ast, parse_root_ast};
-use crate::python_def::{Attribute, Class, Method};
+use crate::python_def::{Attribute, Class, Method, PythonDef};
 use failure::{Error, ResultExt};
 use fs_extra::dir::{move_dir, CopyOptions};
 use log::{debug, info};
@@ -225,10 +225,15 @@ impl ModuleManager {
             .with_context(|e| format!("Could not travel root directory: {}", e))?;
 
         for file in files_iter {
+            let module_type = if file.ends_with("__init__.py") {
+                ModuleType::Directory
+            } else {
+                ModuleType::File
+            };
             match Self::path_2_module(file.to_str().unwrap()) {
                 Ok(module) => {
                     if module.starts_with(&self.module) && module != self.module {
-                        let mut sub_module_manager = Self::new(&module, ModuleType::File, false)?;
+                        let mut sub_module_manager = Self::new(&module, module_type, false)?;
                         sub_module_manager.reload()?;
                         sub_modules.push(sub_module_manager);
                     }
@@ -256,8 +261,12 @@ impl ModuleManager {
                 e.to_string()
             )
         })?;
-        let (classes, functions, vars) = parse_root_ast(ast, &original_code)
-            .with_context(|e| format!("Could not parse root ast: {}", e))?;
+        let (classes, functions, vars) = parse_root_ast(
+            ast,
+            &original_code,
+            &self.path.to_str().unwrap().to_string(),
+        )
+        .with_context(|e| format!("Could not parse root ast: {}", e))?;
 
         self.classes = classes;
         self.functions = functions;
@@ -319,7 +328,6 @@ impl ModuleManager {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn get_classes(self: &Self) -> Vec<Class> {
         let mut classes = self.classes.clone();
 
@@ -330,7 +338,14 @@ impl ModuleManager {
         classes
     }
 
-    #[allow(dead_code)]
+    pub fn find_classes(self: &Self, query: &String) -> Vec<String> {
+        self.get_classes()
+            .into_iter()
+            .map(|c| c.find(&query, Some(true)))
+            .filter(|c| c.len() > 0)
+            .collect::<Vec<String>>()
+    }
+
     pub fn get_functions(self: &Self) -> Vec<Method> {
         let mut functions = self.functions.clone();
 
@@ -341,7 +356,14 @@ impl ModuleManager {
         functions
     }
 
-    #[allow(dead_code)]
+    pub fn find_functions(self: &Self, query: &String) -> Vec<String> {
+        self.get_functions()
+            .into_iter()
+            .map(|f| f.find(&query, Some(true)))
+            .filter(|f| f.len() > 0)
+            .collect::<Vec<String>>()
+    }
+
     pub fn get_vars(self: &Self) -> Vec<Attribute> {
         let mut vars = self.vars.clone();
 
@@ -350,6 +372,14 @@ impl ModuleManager {
         }
 
         vars
+    }
+
+    pub fn find_vars(self: &Self, query: &String) -> Vec<String> {
+        self.get_vars()
+            .into_iter()
+            .map(|v| v.find(&query, Some(true)))
+            .filter(|v| v.len() > 0)
+            .collect::<Vec<String>>()
     }
 }
 
