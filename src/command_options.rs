@@ -1,4 +1,4 @@
-use color_print::cprintln;
+use color_print::{cprint, cprintln};
 use failure::ResultExt;
 use structopt::StructOpt;
 
@@ -14,6 +14,9 @@ pub enum SubCommand {
 
     #[structopt(name = "find", about = "find a module")]
     Find(FindOptions),
+
+    #[structopt(name = "view", about = "view a module")]
+    View(ViewOptions),
 }
 
 #[derive(StructOpt)]
@@ -67,6 +70,17 @@ pub struct FindOptions {
     #[structopt(short = "v", long = "variable")]
     /// find variables
     variable: bool,
+}
+
+#[derive(StructOpt)]
+pub struct ViewOptions {
+    #[structopt()]
+    /// The name of the module to view
+    module: Option<String>,
+
+    #[structopt(short = "c", long = "code")]
+    /// Show the definitions code
+    code: bool,
 }
 
 #[derive(StructOpt)]
@@ -140,12 +154,6 @@ pub fn find(options: &FindOptions) {
         Some(module) => {
             let query = &options.query;
 
-            cprintln!(
-                "󱁴 Searching for <green>{}</green> in <blue>{}</blue>",
-                query,
-                module
-            );
-
             let module_type = if options.is_file {
                 ModuleType::File
             } else {
@@ -171,23 +179,33 @@ pub fn find(options: &FindOptions) {
                 })
                 .unwrap();
 
-            let mut result = Vec::new();
-            let is_find_all = !options.function && !options.class && !options.variable;
+            let (find_vars, find_functions, find_classes) =
+                match !options.function && !options.class && !options.variable {
+                    true => (true, true, true),
+                    false => (options.variable, options.function, options.class),
+                };
 
-            if options.function || is_find_all {
-                result.extend(module_manager.find_functions(query))
+            let displays = module_manager
+                .find(
+                    query,
+                    String::new(),
+                    find_vars,
+                    find_functions,
+                    find_classes,
+                )
+                .with_context(|e| format!("Failed to find module {}: {}", module, e))
+                .unwrap();
+
+            if displays.len() > 0 {
+                cprintln!(
+                    "<Y><s>󱁴 Searching for <blink>[{}]</blink> in <B>{}</B></s></Y>",
+                    query,
+                    module
+                );
             }
 
-            if options.class || options.function || is_find_all {
-                result.extend(module_manager.find_classes(query))
-            }
-
-            if options.variable || is_find_all {
-                result.extend(module_manager.find_vars(query))
-            }
-
-            for r in result {
-                cprintln!("{}", r);
+            for display in displays {
+                cprint!("{}", display)
             }
         }
         None => {
@@ -224,6 +242,74 @@ pub fn find(options: &FindOptions) {
                     };
 
                     find(&sub_options)
+                })
+                .collect::<Vec<_>>();
+        }
+    }
+}
+
+pub fn view(options: &ViewOptions) {
+    match &options.module {
+        Some(module) => {
+            let file_path = module_manager::ModuleManager::module_2_path(module, &ModuleType::File)
+                .with_context(|e| format!("Failed to convert module to path: {}", e))
+                .unwrap();
+
+            let module_type = match file_path.exists() {
+                true => ModuleType::File,
+                false => ModuleType::Directory,
+            };
+
+            let mut module_manager = ModuleManager::new(module, module_type, false)
+                .with_context(|e| {
+                    format!(
+                        "Failed to create module manager for module {}: {}",
+                        module, e
+                    )
+                })
+                .unwrap();
+
+            module_manager
+                .reload()
+                .with_context(|e| {
+                    format!(
+                        "Failed to reload module manager for module {}: {}",
+                        module, e
+                    )
+                })
+                .unwrap();
+
+            module_manager.mprint(String::new(), options.code);
+        }
+        None => {
+            let _ = module_manager::ModuleManager::travel_root(None, Some(2))
+                .unwrap()
+                .filter(|m| {
+                    if m.file_name().unwrap() == "__init__.py" {
+                        if m.iter().count() != 3 {
+                            return false;
+                        } else {
+                            return true;
+                        }
+                    } else if m.iter().count() != 2 {
+                        return false;
+                    } else {
+                        return true;
+                    }
+                })
+                .map(|m| {
+                    let module = module_manager::ModuleManager::path_2_module(
+                        &m.to_str().unwrap().to_string(),
+                    )
+                    .with_context(|e| format!("Failed to convert path to module: {}", e))
+                    .unwrap();
+
+                    let sub_options = ViewOptions {
+                        module: Some(module),
+                        code: options.code.clone(),
+                    };
+
+                    view(&sub_options)
                 })
                 .collect::<Vec<_>>();
         }

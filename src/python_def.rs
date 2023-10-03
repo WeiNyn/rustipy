@@ -5,7 +5,12 @@ pub trait PythonDef {
 
     fn get_definition_code(&self) -> String;
 
-    fn find(&self, query: &str, include_file_name: Option<bool>) -> String;
+    fn find(
+        &self,
+        query: &str,
+        include_file_name: Option<bool>,
+        print_prefix: Option<&String>,
+    ) -> String;
 }
 
 #[derive(Debug, Clone)]
@@ -61,28 +66,50 @@ impl PythonDef for Class {
         code
     }
 
-    fn find(&self, query: &str, include_file_name: Option<bool>) -> String {
+    fn find(
+        &self,
+        query: &str,
+        include_file_name: Option<bool>,
+        print_prefix: Option<&String>,
+    ) -> String {
+        let binding = String::new();
+        let print_prefix = match print_prefix {
+            Some(p) => p,
+            None => &binding,
+        }
+        .as_str();
         let mut result = String::new();
 
-        let mut class_def_str = cformat!("<red>class</red> <yellow>{}</yellow>", self.name.clone());
+        let mut class_def_str = cformat!(
+            "{}<red>class</red> <yellow>{}</yellow>",
+            print_prefix,
+            self.name.clone()
+        );
         if self.base_classes.len() > 0 {
             class_def_str.push_str(&cformat!("(<blue>{}</blue>)", self.base_classes.join(", ")));
         }
         class_def_str.push_str(":\n");
-        class_def_str = class_def_str.replace(query, cformat!("<bg:green>{}</bg:green>", query).as_str());
+        if query.len() > 0 {
+            class_def_str =
+                class_def_str.replace(query, cformat!("<bg:green>{}</bg:green>", query).as_str());
+        }
 
         let mut function_defs = String::new();
         for m in &self.methods {
-            let function_def = m.find(query, Some(false));
+            let function_def = m.find(query, Some(false), Some(&format!("{}    ", print_prefix)));
             if function_def.len() > 0 {
-                function_defs.push_str("    ");
                 function_defs.push_str(&function_def);
             }
         }
 
-        if self.name.contains(query) || function_defs.len() > 0 {
+        if self.name.contains(query) || function_defs.len() > 0 || query.len() == 0 {
             if include_file_name.is_some() && include_file_name.unwrap() {
-                result.push_str(&cformat!("<yellow><bg:blue> [{}]</bg:blue></yellow>\n", self.path));
+                result.push_str(&cformat!(
+                    "{}<yellow><bg:blue> [{}/{}]</bg:blue></yellow>\n",
+                    print_prefix,
+                    std::env::current_dir().unwrap().display(),
+                    self.path
+                ));
             }
             result.push_str(&class_def_str);
             result.push_str(&function_defs);
@@ -147,23 +174,38 @@ impl PythonDef for Method {
         code
     }
 
-    fn find(&self, query: &str, include_file_name: Option<bool>) -> String {
+    fn find(
+        &self,
+        query: &str,
+        include_file_name: Option<bool>,
+        print_prefix: Option<&String>,
+    ) -> String {
+        let binding = String::new();
+        let print_prefix = match print_prefix {
+            Some(p) => p,
+            None => &binding,
+        }
+        .as_str();
         let mut result = String::new();
 
-        let mut method_def_str =
-            cformat!("<red>def</red> <magenta>{}</magenta>", self.name.clone());
+        let mut method_def_str = cformat!(
+            "{}<red>def</red> <magenta>{}</magenta>",
+            print_prefix,
+            self.name.clone()
+        );
         method_def_str.push_str("(");
         method_def_str.push_str(
             &self
                 .arguments
                 .iter()
-                .map(|a| a.definition_code
-                    .clone()
-                    .replace("self", cformat!("<red>self</red>").as_str())
-                    .replace("cls", cformat!("<red>cls</red>").as_str())
-                    .replace("...", cformat!("<red>...</red>").as_str())
-                    .replace("*", cformat!("<red>*</red>").as_str())
-                )
+                .map(|a| {
+                    a.definition_code
+                        .clone()
+                        .replace("self", cformat!("<red>self</red>").as_str())
+                        .replace("cls", cformat!("<red>cls</red>").as_str())
+                        .replace("...", cformat!("<red>...</red>").as_str())
+                        .replace("*", cformat!("<red>*</red>").as_str())
+                })
                 .collect::<Vec<String>>()
                 .join(", "),
         );
@@ -172,11 +214,19 @@ impl PythonDef for Method {
             method_def_str.push_str(&format!(" -> {}", self.return_type.clone().unwrap()));
         }
         method_def_str.push_str(":\n");
-        method_def_str = method_def_str.replace(query, cformat!("<bg:green>{}</bg:green>", query).as_str());
+        if query.len() > 0 {
+            method_def_str =
+                method_def_str.replace(query, cformat!("<bg:green>{}</bg:green>", query).as_str());
+        }
 
-        if self.name.contains(query) {
+        if self.name.contains(query) || query.len() == 0 {
             if include_file_name.is_some() && include_file_name.unwrap() {
-                result.push_str(&cformat!("<yellow><bg:blue> [{}]</bg:blue></yellow>\n", self.path));
+                result.push_str(&cformat!(
+                    "{}<yellow><bg:blue> [{}/{}]</bg:blue></yellow>\n",
+                    print_prefix,
+                    std::env::current_dir().unwrap().display(),
+                    self.path
+                ));
             }
             result.push_str(&method_def_str);
         }
@@ -250,15 +300,34 @@ impl PythonDef for Attribute {
         }
     }
 
-    fn find(&self, query: &str, include_file_name: Option<bool>) -> String {
+    fn find(
+        &self,
+        query: &str,
+        include_file_name: Option<bool>,
+        print_prefix: Option<&String>,
+    ) -> String {
+        let binding = String::new();
+        let print_prefix = match print_prefix {
+            Some(p) => p,
+            None => &binding,
+        }
+        .as_str();
         let mut result = String::new();
 
-        let mut arg_def_str = self.definition_code.clone();
-        arg_def_str = arg_def_str.replace(query, cformat!("<bg:green>{}</bg:green>", query).as_str());
+        let mut arg_def_str = format!("{}{}", print_prefix, self.definition_code.clone());
+        if query.len() > 0 {
+            arg_def_str =
+                arg_def_str.replace(query, cformat!("<bg:green>{}</bg:green>", query).as_str());
+        }
 
-        if self.name.contains(query) {
+        if self.name.contains(query) || query.len() == 0 {
             if include_file_name.is_some() && include_file_name.unwrap() {
-                result.push_str(&cformat!("<yellow><bg:blue> [{}]</bg:blue></yellow>\n", self.path));
+                result.push_str(&cformat!(
+                    "{}<yellow><bg:blue> [{}/{}]</bg:blue></yellow>\n",
+                    print_prefix,
+                    std::env::current_dir().unwrap().display(),
+                    self.path
+                ));
             }
             result.push_str(&arg_def_str);
             result.push('\n');

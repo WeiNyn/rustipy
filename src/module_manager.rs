@@ -1,5 +1,6 @@
 use crate::parse_ast::{parse_ast, parse_root_ast};
 use crate::python_def::{Attribute, Class, Method, PythonDef};
+use color_print::cformat;
 use failure::{Error, ResultExt};
 use fs_extra::dir::{move_dir, CopyOptions};
 use log::{debug, info};
@@ -126,26 +127,61 @@ impl ModuleManager {
 
         for file in files_iter {
             debug!("Replacing in {}", file.display());
-            let contents = Self::read_file(&file)
+            let mut contents = Self::read_file(&file)
                 .with_context(|e| format!("Could not read file {}: {}", file.display(), e))?;
 
-            let pattern = format!(
-                r"(?m)(\s+|=|:|\(|\[|\{{)({})(\s+|\.)",
-                old.replace(".", r"\.")
-            );
+            // Handle normal import: import old -> new
+            let pattern = Regex::new(&format!(r"import\s+{}((\.((\w|_)+(\d|\w|_)*))+|\s+)", old))
+                .with_context(|e| format!("Could not create regex: {}", e))?;
 
-            let new_contents = Regex::new(&pattern)
-                .with_context(|e| format!("Could not create regex {}: {}", pattern, e))?
+            contents = pattern
                 .replace_all(&contents, |caps: &regex::Captures| {
-                    let mut replacement = String::new();
-                    replacement.push_str(&caps[1]);
-                    replacement.push_str(&new);
-                    replacement.push_str(&caps[3]);
+                    let mut replacement = String::from("import ");
+                    replacement.push_str(new);
+
+                    let after = caps.get(1);
+                    match after {
+                        Some(after) => {
+                            replacement.push_str(after.as_str());
+                        }
+                        None => {}
+                    }
+
                     replacement
                 })
                 .to_string();
 
-            std::fs::write(&file, new_contents)
+            // Handle from import: from old import -> from new import
+            let pattern = Regex::new(&format!(r"from\s+{}(\.((\w|_)+(\d|\w|_)*))*\s+import", old))
+                .with_context(|e| format!("Could not create regex: {}", e))?;
+
+            contents = pattern
+                .replace_all(&contents, |caps: &regex::Captures| {
+                    let mut replacement = String::from("from ");
+                    replacement.push_str(new);
+
+                    let after = caps.get(1);
+                    match after {
+                        Some(after) => {
+                            replacement.push_str(after.as_str());
+                        }
+                        None => {}
+                    }
+
+                    replacement.push_str(" import");
+                    replacement
+                })
+                .to_string();
+
+            // Handle module mapping: old. -> new.
+            let pattern = Regex::new(&format!(r"{}\.", old))
+                .with_context(|e| format!("Could not create regex: {}", e))?;
+
+            contents = pattern
+                .replace_all(&contents, format!("{}.", new).as_str())
+                .to_string();
+
+            std::fs::write(&file, contents)
                 .with_context(|e| format!("Could not write to file {}: {}", file.display(), e))?;
         }
 
@@ -305,7 +341,6 @@ impl ModuleManager {
         Ok(())
     }
 
-    /// TODO: Change this to AST operation for preventing errors
     pub fn mv(self: &mut Self, to: &str) -> Result<(), Error> {
         let new_path = Self::module_2_path(to, &self.module_type)?;
         Self::make_tree(&new_path)?;
@@ -359,58 +394,134 @@ impl ModuleManager {
         Ok(())
     }
 
-    pub fn get_classes(self: &Self) -> Vec<Class> {
-        let mut classes = self.classes.clone();
+    pub fn find(
+        self: &Self,
+        query: &String,
+        prefix: String,
+        find_vars: bool,
+        find_functions: bool,
+        find_classes: bool,
+    ) -> Result<Vec<String>, Error> {
+        let mut display = String::new();
+        display.push_str(&prefix);
+        display.push_str("│――");
 
-        for sub_module in &self.sub_modules {
-            classes.append(&mut sub_module.get_classes().clone());
+        let display_path = match self.module_type {
+            ModuleType::Directory => self.path.parent().unwrap().to_str().unwrap(),
+            ModuleType::File => self.path.to_str().unwrap(),
+        };
+
+        let file_path = cformat!(
+            "{}/{}",
+            std::env::current_dir().unwrap().to_str().unwrap(),
+            display_path
+        );
+        match self.module_type {
+            ModuleType::File => {
+                display.push_str(cformat!("📄 <green!>{}</green!>\n", file_path).as_str())
+            }
+            ModuleType::Directory => {
+                display.push_str(cformat!("📁 <blue!>{}</blue!>\n", file_path).as_str())
+            }
         }
 
-        classes
-    }
+        let sub_prefix = format!("{}│  ", prefix);
+        let mut found = false;
+        let mut displays = Vec::new();
+        displays.push(display);
 
-    pub fn find_classes(self: &Self, query: &String) -> Vec<String> {
-        self.get_classes()
-            .into_iter()
-            .map(|c| c.find(&query, Some(true)))
-            .filter(|c| c.len() > 0)
-            .collect::<Vec<String>>()
-    }
-
-    pub fn get_functions(self: &Self) -> Vec<Method> {
-        let mut functions = self.functions.clone();
-
-        for sub_module in &self.sub_modules {
-            functions.append(&mut sub_module.get_functions().clone());
+        if find_vars {
+            for var in self.vars.clone() {
+                let found_var = var.find(query, None, Some(&sub_prefix));
+                if found_var.len() > 0 {
+                    found = true;
+                    displays.push(found_var);
+                }
+            }
         }
 
-        functions
-    }
-
-    pub fn find_functions(self: &Self, query: &String) -> Vec<String> {
-        self.get_functions()
-            .into_iter()
-            .map(|f| f.find(&query, Some(true)))
-            .filter(|f| f.len() > 0)
-            .collect::<Vec<String>>()
-    }
-
-    pub fn get_vars(self: &Self) -> Vec<Attribute> {
-        let mut vars = self.vars.clone();
-
-        for sub_module in &self.sub_modules {
-            vars.append(&mut sub_module.get_vars().clone());
+        if find_functions {
+            for function in self.functions.clone() {
+                let found_function = function.find(query, None, Some(&sub_prefix));
+                if found_function.len() > 0 {
+                    found = true;
+                    displays.push(found_function);
+                }
+            }
         }
 
-        vars
+        if find_classes || find_functions {
+            for class in self.classes.clone() {
+                let found_class = class.find(query, None, Some(&sub_prefix));
+                if found_class.len() > 0 {
+                    found = true;
+                    displays.push(found_class);
+                }
+            }
+        }
+
+        if self.module_type == ModuleType::Directory {
+            for sub_module in &self.sub_modules {
+                let sub_displays = sub_module
+                    .find(
+                        query,
+                        format!("{}│  ", prefix),
+                        find_vars,
+                        find_functions,
+                        find_classes,
+                    )
+                    .with_context(|e| format!("Could not find in sub module: {}", e))?;
+
+                if sub_displays.len() > 0 {
+                    found = true;
+                    displays.extend(sub_displays)
+                }
+            }
+
+            displays.push(format!("{}│  *\n", prefix));
+        }
+
+        return match found {
+            true => Ok(displays),
+            false => Ok(Vec::new()),
+        };
     }
 
-    pub fn find_vars(self: &Self, query: &String) -> Vec<String> {
-        self.get_vars()
-            .into_iter()
-            .map(|v| v.find(&query, Some(true)))
-            .filter(|v| v.len() > 0)
-            .collect::<Vec<String>>()
+    pub fn mprint(self: &Self, prefix: String, show_code: bool) {
+        let mut display = String::new();
+        display.push_str(&prefix);
+        display.push_str("│――");
+        let display_name = &self.module.split(".").last().unwrap();
+        match self.module_type {
+            ModuleType::File => {
+                display.push_str(cformat!("📄 <green>{}</green>", display_name).as_str())
+            }
+            ModuleType::Directory => {
+                display.push_str(cformat!("📁 <blue>{}</blue>", display_name).as_str())
+            }
+        }
+
+        println!("{}", display);
+
+        if show_code {
+            let sub_prefix = format!("{}│  ", prefix);
+
+            for function in self.functions.clone() {
+                print!("{}", function.find("", None, Some(&sub_prefix)))
+            }
+
+            for class in self.classes.clone() {
+                print!("{}", class.find("", None, Some(&sub_prefix)))
+            }
+        }
+
+        if self.module_type == ModuleType::Directory {
+            for sub_module in &self.sub_modules {
+                sub_module.mprint(format!("{}│  ", prefix), show_code);
+            }
+
+            println!("{}│  *", prefix);
+        }
     }
 }
 
@@ -537,5 +648,11 @@ mod tests {
 
         remove_file("tests/test_mv.py").unwrap();
         remove_dir_all("tests/test_mv").unwrap();
+    }
+
+    #[test]
+    fn test_mprint() {
+        let module_manager = ModuleManager::new("tests", ModuleType::Directory, true).unwrap();
+        module_manager.mprint(String::from(""), true);
     }
 }

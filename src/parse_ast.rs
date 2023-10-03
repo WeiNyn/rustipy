@@ -55,7 +55,11 @@ pub fn parse_root_ast(
     return Ok((classes, functions, attributes));
 }
 
-fn parse_assign(assign: &StmtAssign, original_code: &String, path: &String) -> Result<Vec<Attribute>, Error> {
+fn parse_assign(
+    assign: &StmtAssign,
+    original_code: &String,
+    path: &String,
+) -> Result<Vec<Attribute>, Error> {
     let names = assign
         .targets
         .iter()
@@ -203,20 +207,41 @@ fn parse_arg_with_default(
         None => None,
     };
 
-    Ok(Attribute::new(path.to_string(), name, type_, default_value, arg_type))
+    Ok(Attribute::new(
+        path.to_string(),
+        name,
+        type_,
+        default_value,
+        arg_type,
+    ))
 }
 
-fn parse_arg(arg: &Arg, original_code: &String, arg_type: ArgType, path: &String) -> Result<Attribute, Error> {
+fn parse_arg(
+    arg: &Arg,
+    original_code: &String,
+    arg_type: ArgType,
+    path: &String,
+) -> Result<Attribute, Error> {
     let name = arg.arg.to_string();
     let type_ = arg
         .annotation
         .clone()
         .map(|a| original_code[a.range()].to_string());
 
-    Ok(Attribute::new(path.to_string(), name, type_, None, arg_type))
+    Ok(Attribute::new(
+        path.to_string(),
+        name,
+        type_,
+        None,
+        arg_type,
+    ))
 }
 
-fn parse_class_def(class_def: &StmtClassDef, original_code: &String, path: &String) -> Result<Class, Error> {
+fn parse_class_def(
+    class_def: &StmtClassDef,
+    original_code: &String,
+    path: &String,
+) -> Result<Class, Error> {
     let name = class_def.name.to_string();
 
     let bases = class_def
