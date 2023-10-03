@@ -1,3 +1,4 @@
+use color_print::cprintln;
 use failure::{Error, ResultExt};
 use rustpython_parser::ast::{
     Arg, ArgWithDefault, Expr, Ranged, Stmt, StmtAnnAssign, StmtAssign, StmtClassDef,
@@ -21,9 +22,15 @@ pub fn parse_ast(
     let source_path = source_path.unwrap_or(String::from("./"));
 
     let ast = ast::Suite::parse(&contents, &source_path)
-        .with_context(|_| format!("Could not parse file {:?}", path))?;
+        .with_context(|_| format!("Could not parse file {:?}", path));
 
-    Ok((ast, contents))
+    return match ast {
+        Ok(ast) => Ok((ast, contents)),
+        Err(e) => {
+            cprintln!("<R> Error: {}</R>", e);
+            Ok((Vec::new(), contents))
+        }
+    };
 }
 
 pub fn parse_root_ast(
