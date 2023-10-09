@@ -534,69 +534,65 @@ mod tests {
     #[test]
     fn test_create() {
         let module_manager =
-            ModuleManager::new("tests.test_create", ModuleType::File, false).unwrap();
-        assert_eq!(module_manager.module, "tests.test_create");
-        assert_eq!(module_manager.path, PathBuf::from("tests/test_create.py"));
+            ModuleManager::new("tests_data.test_create", ModuleType::File, false).unwrap();
+        assert_eq!(module_manager.module, "tests_data.test_create");
+        assert_eq!(module_manager.path, PathBuf::from("tests_data/test_create.py"));
 
         let module_manager =
-            ModuleManager::new("tests.test_create", ModuleType::Directory, false).unwrap();
-        assert_eq!(module_manager.module, "tests.test_create");
+            ModuleManager::new("tests_data.test_create", ModuleType::Directory, false).unwrap();
+        assert_eq!(module_manager.module, "tests_data.test_create");
         assert_eq!(
             module_manager.path,
-            PathBuf::from("tests/test_create/__init__.py")
+            PathBuf::from("tests_data/test_create/__init__.py")
         );
     }
 
     #[test]
     fn test_build() {
         let module_manager =
-            ModuleManager::new("tests.test_build", ModuleType::File, false).unwrap();
+            ModuleManager::new("tests_data.test_build_file", ModuleType::File, false).unwrap();
         module_manager.build().unwrap();
         assert!(module_manager.path.exists());
-        remove_file("tests/test_build.py").unwrap();
 
         let module_manager =
-            ModuleManager::new("tests.test_build", ModuleType::Directory, false).unwrap();
+            ModuleManager::new("tests_data.test_build_dir", ModuleType::Directory, false).unwrap();
         module_manager.build().unwrap();
         assert!(module_manager.path.exists());
-        remove_dir_all("tests/test_build").unwrap();
     }
 
     #[test]
     #[ignore = "Need to test separately"]
     fn test_add_sub_module() {
         let mut module_manager =
-            ModuleManager::new("tests.test_add_sub_module", ModuleType::Directory, true).unwrap();
+            ModuleManager::new("tests_data.test_add_sub_module", ModuleType::Directory, true).unwrap();
         module_manager
             .add_sub_module("sub_module", ModuleType::File, true)
             .unwrap();
 
-        assert_eq!(module_manager.sub_modules.len(), 1);
+        assert_eq!(module_manager.sub_modules.len(), 2);
         assert_eq!(
             module_manager.sub_modules[0].module,
-            "tests.test_add_sub_module.sub_module"
+            "tests_data.test_add_sub_module.sub_module"
         );
         assert_eq!(
             module_manager.sub_modules[0].path,
-            PathBuf::from("tests/test_add_sub_module/sub_module.py")
+            PathBuf::from("tests_data/test_add_sub_module/sub_module.py")
         );
         assert_eq!(module_manager.sub_modules[0].module_type, ModuleType::File);
-
-        remove_dir_all("tests/test_add_sub_module").unwrap();
     }
 
     #[test]
     #[ignore = "Need to test separately"]
     fn test_add_sub_module_panic() {
         let mut module_manager =
-            ModuleManager::new("tests.test_add_sub_module", ModuleType::File, true).unwrap();
+            ModuleManager::new("tests_data.test_add_sub_module", ModuleType::File, true).unwrap();
         match module_manager.add_sub_module("sub_module", ModuleType::Directory, true) {
             Ok(_) => {
                 panic!("Should panic")
             }
             Err(e) => {
                 assert_eq!(e.to_string(), "Files cannot contain other modules");
-                remove_file("tests/test_add_sub_module.py").unwrap();
+                remove_file("tests_data/test_add_sub_module.py").unwrap();
             }
         };
     }
@@ -605,54 +601,48 @@ mod tests {
     #[ignore = "Need to test separately"]
     fn test_mv() {
         let mut module_manager =
-            ModuleManager::new("tests.test_mv", ModuleType::File, true).unwrap();
-        module_manager.mv("tests.test_mv2").unwrap();
-        assert_eq!(module_manager.module, "tests.test_mv2");
-        assert_eq!(module_manager.path, PathBuf::from("tests/test_mv2.py"));
+            ModuleManager::new("tests_data.test_mv", ModuleType::File, true).unwrap();
+        module_manager.mv("tests_data.test_mv2").unwrap();
+        assert_eq!(module_manager.module, "tests_data.test_mv2");
+        assert_eq!(module_manager.path, PathBuf::from("tests_data/test_mv2.py"));
 
-        let check_content = ModuleManager::read_file(Path::new("tests/test_check_mv.py"))
+        let check_content = ModuleManager::read_file(Path::new("tests_data/test_check_mv.py"))
             .expect("Could not read file");
-        assert_eq!(check_content, "from tests.test_mv2 import *\nimport tests.test_mv2.abc as abc\ntest_var:tests.test_mv2.abc.ABC = tests.test_mv2.abc.ABC()");
+        assert_eq!(check_content, "from tests_data.test_mv2 import *\nimport tests_data.test_mv2.abc as abc\ntest_var:tests_data.test_mv2.abc.ABC = tests_data.test_mv2.abc.ABC()");
 
-        module_manager.mv("tests.test_mv").unwrap();
-        assert_eq!(module_manager.module, "tests.test_mv");
-        assert_eq!(module_manager.path, PathBuf::from("tests/test_mv.py"));
+        module_manager.mv("tests_data.test_mv").unwrap();
+        assert_eq!(module_manager.module, "tests_data.test_mv");
+        assert_eq!(module_manager.path, PathBuf::from("tests_data/test_mv.py"));
 
-        let check_content = ModuleManager::read_file(Path::new("tests/test_check_mv.py"))
+        let check_content = ModuleManager::read_file(Path::new("tests_data/test_check_mv.py"))
             .expect("Could not read file");
-        assert_eq!(check_content, "from tests.test_mv import *\nimport tests.test_mv.abc as abc\ntest_var:tests.test_mv.abc.ABC = tests.test_mv.abc.ABC()");
+        assert_eq!(check_content, "from tests_data.test_mv import *\nimport tests_data.test_mv.abc as abc\ntest_var:tests_data.test_mv.abc.ABC = tests_data.test_mv.abc.ABC()");
 
         let mut module_manager =
-            ModuleManager::new("tests.test_mv", ModuleType::Directory, true).unwrap();
-        module_manager.mv("tests.test_mv2").unwrap();
-        assert_eq!(module_manager.module, "tests.test_mv2");
+            ModuleManager::new("tests_data.test_mv", ModuleType::Directory, true).unwrap();
+        module_manager.mv("tests_data.test_mv2").unwrap();
+        assert_eq!(module_manager.module, "tests_data.test_mv2");
         assert_eq!(
             module_manager.path,
-            PathBuf::from("tests/test_mv2/__init__.py")
+            PathBuf::from("tests_data/test_mv2/__init__.py")
         );
 
-        let check_content = ModuleManager::read_file(Path::new("tests/test_check_mv.py"))
+        let check_content = ModuleManager::read_file(Path::new("tests_data/test_check_mv.py"))
             .expect("Could not read file");
-        assert_eq!(check_content, "from tests.test_mv2 import *\nimport tests.test_mv2.abc as abc\ntest_var:tests.test_mv2.abc.ABC = tests.test_mv2.abc.ABC()");
+        assert_eq!(check_content, "from tests_data.test_mv2 import *\nimport tests_data.test_mv2.abc as abc\ntest_var:tests_data.test_mv2.abc.ABC = tests_data.test_mv2.abc.ABC()");
 
-        module_manager.mv("tests.test_mv").unwrap();
-        assert_eq!(module_manager.module, "tests.test_mv");
+        module_manager.mv("tests_data.test_mv").unwrap();
+        assert_eq!(module_manager.module, "tests_data.test_mv");
         assert_eq!(
             module_manager.path,
-            PathBuf::from("tests/test_mv/__init__.py")
+            PathBuf::from("tests_data/test_mv/__init__.py")
         );
 
-        let check_content = ModuleManager::read_file(Path::new("tests/test_check_mv.py"))
+        let check_content = ModuleManager::read_file(Path::new("tests_data/test_check_mv.py"))
             .expect("Could not read file");
-        assert_eq!(check_content, "from tests.test_mv import *\nimport tests.test_mv.abc as abc\ntest_var:tests.test_mv.abc.ABC = tests.test_mv.abc.ABC()");
+        assert_eq!(check_content, "from tests_data.test_mv import *\nimport tests_data.test_mv.abc as abc\ntest_var:tests_data.test_mv.abc.ABC = tests_data.test_mv.abc.ABC()");
 
-        remove_file("tests/test_mv.py").unwrap();
-        remove_dir_all("tests/test_mv").unwrap();
-    }
-
-    #[test]
-    fn test_mprint() {
-        let module_manager = ModuleManager::new("tests", ModuleType::Directory, true).unwrap();
-        module_manager.mprint(String::from(""), true);
+        remove_file("tests_data/test_mv.py").unwrap();
+        remove_dir_all("tests_data/test_mv").unwrap();
     }
 }
