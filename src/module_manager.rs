@@ -1,4 +1,4 @@
-use crate::parse_ast::{parse_ast, parse_root_ast};
+use crate::ast::{parse_ast, parse_root_ast};
 use crate::python_def::{Attribute, Class, Method, PythonDef};
 use color_print::cformat;
 use failure::{Error, ResultExt};
