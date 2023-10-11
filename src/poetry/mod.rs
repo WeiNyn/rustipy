@@ -1,2 +1,2 @@
-mod command;
-mod install;
+pub mod command;
+pub mod check;

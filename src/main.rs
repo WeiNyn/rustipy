@@ -7,7 +7,7 @@ mod module_manager;
 mod poetry;
 mod python_def;
 
-use command_options::functions::{add::add, find::find, mv::mv, view::view};
+use command_options::functions::{add::add, find::find, mv::mv, view::view, check::check};
 use command_options::options::{Options, SubCommand};
 
 fn main() -> Result<(), ExitFailure> {
@@ -18,6 +18,7 @@ fn main() -> Result<(), ExitFailure> {
         SubCommand::Move(move_options) => mv(&move_options),
         SubCommand::Find(find_options) => find(&find_options),
         SubCommand::View(view_options) => view(&view_options),
+        SubCommand::Check(_) => check(),
     }
 
     Ok(())

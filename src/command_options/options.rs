@@ -1,6 +1,12 @@
 use structopt::StructOpt;
 
 #[derive(StructOpt)]
+pub struct Options {
+    #[structopt(subcommand)]
+    pub subcommand: SubCommand,
+}
+
+#[derive(StructOpt)]
 pub enum SubCommand {
     #[structopt(name = "add", about = "Add a module")]
     Add(AddOptions),
@@ -13,6 +19,9 @@ pub enum SubCommand {
 
     #[structopt(name = "view", about = "view a module")]
     View(ViewOptions),
+
+    #[structopt(name = "check", about = "check requirements")]
+    Check(CheckOptions),
 }
 
 #[derive(StructOpt)]
@@ -80,7 +89,8 @@ pub struct ViewOptions {
 }
 
 #[derive(StructOpt)]
-pub struct Options {
-    #[structopt(subcommand)]
-    pub subcommand: SubCommand,
+pub struct CheckOptions {
+    #[structopt(short = "f", long = "fix")]
+    /// Fix the errors
+    pub fix: bool,
 }
