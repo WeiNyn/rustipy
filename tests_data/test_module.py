@@ -13,7 +13,7 @@ def test_function3(*kwargs, case_sen=False):
 
 
 class TestClass(random.Random):
-    def test_method(self, a: int = 1, *, b: str = 2) -> random.Random:
+    async def test_method(self, a: int = 1, *, b: str = 2) -> random.Random:
         return random.Random()
 
 

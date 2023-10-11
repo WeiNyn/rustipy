@@ -126,6 +126,7 @@ pub struct Method {
     return_type: Option<String>,
     arguments: Vec<Attribute>,
     pub definition_code: String,
+    pub is_async: bool
 }
 
 impl Method {
@@ -141,10 +142,16 @@ impl Method {
             return_type: return_type,
             arguments: arguments,
             definition_code: String::from(""),
+            is_async: false
         };
 
         method.definition_code = method.get_definition_code();
         method
+    }
+
+    pub fn set_async(&mut self, is_async: bool) {
+        self.is_async = is_async;
+        self.definition_code = self.get_definition_code();
     }
 }
 
@@ -154,7 +161,7 @@ impl PythonDef for Method {
     }
 
     fn get_definition_code(&self) -> String {
-        let mut code = String::from("def ");
+        let mut code = if self.is_async { String::from("async def ")} else { String::from("def ") };
         code.push_str(&self.name);
         code.push_str("(");
         code.push_str(
@@ -187,10 +194,12 @@ impl PythonDef for Method {
         }
         .as_str();
         let mut result = String::new();
+        let def_str = if self.is_async { "async def" } else { "def" };
 
         let mut method_def_str = cformat!(
-            "{}<red>def</red> <magenta>{}</magenta>",
+            "{}<red>{}</red> <magenta>{}</magenta>",
             print_prefix,
+            def_str,
             self.name.clone()
         );
         method_def_str.push_str("(");

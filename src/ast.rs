@@ -46,6 +46,23 @@ pub fn parse_root_ast(
         match stmt {
             Stmt::ClassDef(c) => classes.push(parse_class_def(&c, original_code, path)?),
             Stmt::FunctionDef(f) => functions.push(parse_function_def(&f, original_code, path)?),
+            Stmt::AsyncFunctionDef(f) => {
+                let _f = StmtFunctionDef {
+                    name: f.name,
+                    args: f.args,
+                    body: f.body,
+                    decorator_list: f.decorator_list,
+                    returns: f.returns,
+                    type_comment: f.type_comment,
+                    range: f.range,
+                    type_params: f.type_params,
+                };
+
+                let mut function = parse_function_def(&_f, original_code, path)?;
+                function.set_async(true);
+
+                functions.push(function)
+            }
             Stmt::Assign(a) => attributes.extend(parse_assign(&a, original_code, path)?),
             Stmt::AnnAssign(a) => {
                 let attribute = parse_ann_assign(&a, original_code, path)
@@ -265,6 +282,24 @@ fn parse_class_def(
                 parse_function_def(f, original_code, path)
                     .with_context(|e| format!("Error parsing method: {}", e))?,
             ),
+            Stmt::AsyncFunctionDef(f) => {
+                let f = f.clone();
+                let _f = StmtFunctionDef {
+                    name: f.name,
+                    args: f.args,
+                    body: f.body,
+                    decorator_list: f.decorator_list,
+                    returns: f.returns,
+                    type_comment: f.type_comment,
+                    range: f.range,
+                    type_params: f.type_params,
+                };
+
+                let mut method = parse_function_def(&_f, original_code, path)?;
+                method.set_async(true);
+
+                methods.push(method)
+            }
             _ => {}
         }
     }
