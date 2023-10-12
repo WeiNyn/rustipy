@@ -32,3 +32,23 @@ pub fn check_python() -> (bool, String) {
         Err(_) => (false, "Not installed".to_string()),
     };
 }
+
+pub fn install_poetry() {
+    let output = Command::new("curl")
+        .arg("-sSL")
+        .arg("https://install.python-poetry.org")                   
+        .output()
+        .expect("failed to install poetry");
+
+    let python_code = String::from_utf8_lossy(&output.stdout.clone()).to_string();
+
+    let install_output = Command::new("python")
+    .arg("-c")
+    .arg(python_code)
+    .stdout(std::process::Stdio::piped())
+    .output()
+    .expect("failed to install poetry");
+
+    println!("{}", String::from_utf8_lossy(&install_output.stdout));
+
+}
