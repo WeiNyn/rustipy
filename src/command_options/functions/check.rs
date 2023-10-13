@@ -1,4 +1,6 @@
 
+use std::io::Write;
+
 use color_print::{cprintln, cprint};
 use crate::poetry::check::{check_poetry, check_python, install_poetry};
 
@@ -6,8 +8,8 @@ use crate::poetry::check::{check_poetry, check_python, install_poetry};
 pub fn check() {
     let (poetry, poetry_version) = check_poetry();
     if !poetry {
-        cprintln!("Poetry: <r> ({})</r>", poetry_version);
-        println!("Poetry is not installed. Do you want to install it? (y/n): ");
+        cprint!("Poetry: <r> ({})</r>. Do you want to install it? (y/n): ", poetry_version);
+        std::io::stdout().flush().unwrap();
         let mut user_confirm = String::new();
         std::io::stdin().read_line(&mut user_confirm).expect("Failed to read line");
         if user_confirm.trim() == "y" {

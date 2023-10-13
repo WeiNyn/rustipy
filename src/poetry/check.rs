@@ -1,4 +1,5 @@
 use std::process::Command;
+use color_print::cprintln;
 use regex::Regex;
 
 fn extract_version(output: String) -> String {
@@ -34,21 +35,21 @@ pub fn check_python() -> (bool, String) {
 }
 
 pub fn install_poetry() {
+    cprintln!("<y>Downloading poetry installer...</y>");
     let output = Command::new("curl")
         .arg("-sSL")
         .arg("https://install.python-poetry.org")                   
         .output()
         .expect("failed to install poetry");
-
     let python_code = String::from_utf8_lossy(&output.stdout.clone()).to_string();
 
-    let install_output = Command::new("python")
+    cprintln!("<y>Installing poetry...</y>");
+    Command::new("python")
     .arg("-c")
     .arg(python_code)
     .stdout(std::process::Stdio::piped())
     .output()
     .expect("failed to install poetry");
 
-    println!("{}", String::from_utf8_lossy(&install_output.stdout));
-
+    cprintln!("<g>Installed</g>");
 }
